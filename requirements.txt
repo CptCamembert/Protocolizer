@@ -1,0 +1,6 @@
+pyaudio==0.2.11
+numpy==1.24.3
+streamz==0.6.4
+requests==2.31.0
+torch==2.1.0
+silero-vad==5.1.2
