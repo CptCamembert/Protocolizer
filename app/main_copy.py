@@ -38,7 +38,7 @@ VAD_FRAMES_OFF = -int(np.ceil(VAD_AFTER * RATE / CHUNK))
 TRANSCRIPTION_MAX_LENGTH = 60.0  # Maximum seconds before forcing transcription
 
 # Teaching settings - use the previous transcription minimum length for teaching
-TEACHING_MIN_LENGTH = 15.0  # Minimum seconds of audio before teaching a speaker
+TEACHING_MIN_LENGTH = 10.0  # Minimum seconds of audio before teaching a speaker
 
 ASR_WINDOW = 1
 ASR_INTERVAL = .05
@@ -53,6 +53,12 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Global variable for transcription file - will be set when main() starts
+TRANSCRIPTION_FILE = None
+
+# Global variable to track last speaker for transcription formatting
+LAST_TRANSCRIPTION_SPEAKER = None
 
 # Sliding window for VAD
 def accumulate_vad(buffer, stream): # -> vad_np_buffer:np.ndarray
@@ -235,12 +241,11 @@ def display_speaker_info(speaker_data):
     for speaker in sorted(speaker_scores.keys()):
         score = speaker_scores[speaker]
         bar_len = int(abs(score) / bar_max * bar_width)
-        bar_char = "█" if score >= 0 else "▒"
-        bar = bar_char * min(bar_len, bar_width)  # Limit bar length
+        bar_char = "█" if speaker == current_speaker else "▒"
+        bar = bar_char * min(bar_len, bar_width) + " " * (bar_width - bar_len) + "|" # Limit bar length
         
         # Mark the current speaker
-        marker = "→" if speaker == current_speaker else " "
-        chart_lines.append(f"{marker} {speaker:<10}: {score:>5.2f} |{bar}")
+        chart_lines.append(f"  {speaker:<10}: {score:>5.2f} |{bar}")
     
     chart_lines.append("-" * 50)
     logger.info("\n".join(chart_lines))
@@ -363,24 +368,18 @@ def process_transcription(transcription_data):
 
     if transcription:    
 
-        transcription_message = "📝"
         # Also trigger teaching if audio is long enough and speaker is known
         if duration >= TEACHING_MIN_LENGTH and speaker not in ("", "Unknown"):
             try:
-                success = diarization_client.teach_speaker(speaker, audio_buffer)
-                if success:
-                    transcription_message = f"🎓"
-                else:
-                    transcription_message = f"❌"
+                diarization_client.teach_speaker(speaker, audio_buffer)
             except Exception as e:
                 logger.error(f"Error during teaching for {speaker}: {e}")
 
-        # Write to both log and transcription pipe
-        transcription_message += f" [{speaker}]: {transcription}"
-        write_to_transcription_pipe(transcription_message)
+        # Write to transcription pipe with separate parameters
+        write_to_transcription_pipe(speaker, transcription.strip())
 
         # Save audio into a file (date_time_speakername.wav)
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp = datetime.now().strftime("%d-%m-%y_%H:%M:%S")
         filename = f"temp/{timestamp}_{speaker}.wav"
         AudioHelper.save_buffer_to_file(audio_buffer, filename, rate=RATE)
         
@@ -392,21 +391,28 @@ def process_transcription(transcription_data):
         logger.warning(f"Failed to get transcription for {speaker}")
         return None
 
-def write_to_transcription_pipe(message):
-    """Write transcription messages to a file for separate terminal display"""
+def write_to_transcription_pipe(speaker, text):
+    """Write transcription messages to a log file with simple name and indented text formatting"""
     try:
         import os
         from datetime import datetime
         
-        transcription_file = "/tmp/transcriptions.log"
+        # Use the global transcription file that was set in main()
+        global TRANSCRIPTION_FILE, LAST_TRANSCRIPTION_SPEAKER
+        transcription_file = TRANSCRIPTION_FILE or "transcription.log"  # Fallback if not set
         
-        # Create timestamp for the message
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        timestamped_message = f"[{timestamp}] {message}"
+        # Check if this is the same speaker as last time
+        if speaker == LAST_TRANSCRIPTION_SPEAKER:
+            # Same speaker - just add indented text on a new line
+            formatted_message = f"{text}"
+        else:
+            # New speaker - add speaker name on its own line, then indented text
+            formatted_message = f"\n[{speaker}]:\n{text}"
+            LAST_TRANSCRIPTION_SPEAKER = speaker
         
         # Append message to file
         with open(transcription_file, 'a', encoding='utf-8') as f:
-            f.write(f"{timestamped_message}\n")
+            f.write(f"{formatted_message}\n")
             f.flush()
             
     except Exception as e:
@@ -415,6 +421,12 @@ def write_to_transcription_pipe(message):
 
 def main():
     """Main entry point for the application."""    
+
+    global TRANSCRIPTION_FILE
+    
+    # Initialize transcription file with timestamp - back to log format
+    TRANSCRIPTION_FILE = datetime.now().strftime("transcription_%d-%m-%y_%H-%M.log")
+    logger.info(f"Transcription file: {TRANSCRIPTION_FILE}")
 
     # Set up audio recording and VAD
     audio_helper.start_recording()

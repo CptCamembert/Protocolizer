@@ -34,7 +34,6 @@ env/
 *.avi
 *.flv
 temp/
-tmp/
 
 # Docker
 .dockerignore
@@ -65,6 +64,3 @@ logs/
 .env.development.local
 .env.test.local
 .env.production.local
-
-# Transcription logs
-/tmp/transcriptions.log
