@@ -12,10 +12,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 class AudioHelper:
-    def __init__(self, rate=16000, chunk=512, channels=1, format=pyaudio.paInt16, input=False, output=False):
+    def __init__(self, rate=16000, chunk=512, channels=1, devide_index=None, format=pyaudio.paInt16, input=False, output=False):
         self.RATE = rate
         self.CHUNK = chunk
         self.CHANNELS = channels
+        self.DEVICE_INDEX = devide_index
         self.FORMAT = format
 
         self.input = input
@@ -43,7 +44,7 @@ class AudioHelper:
                 rate=self.RATE,
                 input=True,
                 frames_per_buffer=self.CHUNK,
-                #input_device_index=0
+                input_device_index=self.DEVICE_INDEX,
             )
         
         if self.output:
