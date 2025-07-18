@@ -11,6 +11,8 @@ class DiarizationClient:
         self.top_n_speakers = top_n_speakers
         # Extract base URL for teaching endpoint
         self.teach_url = url.replace('/diarize', '/diarize_teach')
+        # Extract base URL for delete endpoint
+        self.delete_url = url.replace('/diarize', '/diarize_teach_delete')
 
     def get_speakers(self, audio_buffer):
         """
@@ -86,4 +88,32 @@ class DiarizationClient:
                 
         except Exception as e:
             logger.error(f"Error teaching speaker {name}: {e}")
+            return False
+
+    def delete_speaker(self, name):
+        """
+        Delete a speaker's embeddings from the diarization system.
+        
+        Args:
+            name (str): The name of the speaker to delete.
+        
+        Returns:
+            bool: True if deletion was successful, False otherwise.
+        """
+        try:
+            # Send the delete request
+            response = requests.post(
+                self.delete_url,
+                params={"name": name}
+            )
+            
+            if response.status_code == 200:
+                logger.debug(f"Successfully deleted speaker: {name}")
+                return True
+            else:
+                logger.error(f"Failed to delete speaker {name}: {response.status_code} - {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error deleting speaker {name}: {e}")
             return False

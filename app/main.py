@@ -20,7 +20,7 @@ import queue
 # Constants for audio configuration
 RATE = 16000
 CHUNK = 512
-DEVICE_INDEX = 1  # Set to None for default device, or specify an index
+DEVICE_INDEX = 1 # ReSpeaker 4 Mic Array
 audio_helper = AudioHelper(rate=RATE, chunk=CHUNK, devide_index=DEVICE_INDEX, input=True)
 audio_source = Stream()
 
@@ -60,6 +60,9 @@ logger = logging.getLogger(__name__)
 
 # Global variable for transcription file - will be set when main() starts
 TRANSCRIPTION_FILE = None
+
+# Global variable for speaker info file - will be set when main() starts  
+SPEAKER_INFO_FILE = None
 
 # Global variable for transcription queue
 TRANSCRIPTION_QUEUE = queue.Queue()
@@ -256,6 +259,9 @@ def display_speaker_info(speaker_data):
     
     chart_lines.append("-" * 50)
     logger.info("\n".join(chart_lines))
+    
+    # Write speaker info to file
+    write_speaker_info_to_file(speaker_data)
 
 # Accumulate audio by speaker for transcription
 def accumulate_speaker_audio(transcription_state, input_data): # -> audio_buffer:np.ndarray, should_transcribe:bool
@@ -390,13 +396,66 @@ def write_to_transcription_pipe(speaker, text):
         # Log the error instead of silently passing
         logger.error(f"Error writing transcription to file: {str(e)}", exc_info=True)
 
+def write_speaker_info_to_file(speaker_data):
+    """Write speaker information and bar chart to a log file"""
+    try:
+        # Use the global speaker info file that was set in main()
+        global SPEAKER_INFO_FILE
+        speaker_info_file = SPEAKER_INFO_FILE or "speaker_info.log"  # Fallback if not set
+        
+        # Unpack the data - speaker_data is now ((speaker_scores, is_end), current_speaker)
+        speaker_scores_with_end, current_speaker = speaker_data
+        speaker_scores, is_end = speaker_scores_with_end
+        
+        if not speaker_scores:
+            return
+
+        # Generate timestamp for this entry
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        
+        # Generate bar chart (same logic as display_speaker_info)
+        chart_lines = [f"[{timestamp}]"]
+        chart_lines.append(f"Current Speaker: {current_speaker}")
+        bar_width = 100  # Reduced width for cleaner output
+        bar_max = 1
+        
+        # Create threshold indicator line
+        threshold_pos = int(ASR_THRESHOLD * bar_width / bar_max)
+        threshold_line = "Threshold: " + " " * (10 + threshold_pos) + "| " + str(ASR_THRESHOLD)
+        chart_lines.append(threshold_line)
+        
+        # Sort speakers alphabetically by name
+        for speaker in sorted(speaker_scores.keys()):
+            score = speaker_scores[speaker]
+            bar_len = int(abs(score) / bar_max * bar_width)
+            bar_char = "█" if speaker == current_speaker else "▒"
+            bar = bar_char * min(bar_len, bar_width) + " " * (bar_width - bar_len) + "|" # Limit bar length
+            
+            # Mark the current speaker
+            chart_lines.append(f"  {speaker:<10}: {score:>5.2f} |{bar}")
+        
+        chart_lines.append("-" * 50)
+        
+        # Write message to file (overwrite each time to show only newest info)
+        with open(speaker_info_file, 'w', encoding='utf-8') as f:
+            f.write("\n".join(chart_lines) + "\n")
+            f.flush()
+            
+    except Exception as e:
+        # Log the error instead of silently passing
+        logger.error(f"Error writing speaker info to file: {str(e)}", exc_info=True)
+
 def main():
     """Main entry point for the application."""    
-    global TRANSCRIPTION_FILE
+    global TRANSCRIPTION_FILE, SPEAKER_INFO_FILE
     
     # Initialize transcription file with timestamp - back to log format
     TRANSCRIPTION_FILE = datetime.now().strftime("transcription_%d-%m-%y_%H-%M.log")
     logger.info(f"Transcription file: {TRANSCRIPTION_FILE}")
+    
+    # Initialize speaker info file with timestamp
+    SPEAKER_INFO_FILE = "speaker_info.log"
+    logger.info(f"Speaker info file: {SPEAKER_INFO_FILE}")
 
     # Start the transcription worker thread
     transcription_thread = threading.Thread(target=transcription_worker, daemon=True)
